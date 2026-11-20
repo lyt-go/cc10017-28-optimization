@@ -65,6 +65,44 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="materialized_view.csv"'})
 
 
+# ───────────────────────────────
+# 分发批次结果核对与刷新版本：字面量路径声明在 /{entry_id} 之前
+# ───────────────────────────────
+
+@router.post("/refresh-versions/confirm", response_model=ActionResult)
+def confirm_refresh(payload: dict[str, object]) -> ActionResult:
+    """物化查询页核对分发批次结果，并确认后续批次使用的视图刷新版本。"""
+    try:
+        mv_id = int(payload.get("mv_id"))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return ActionResult(ok=False, message="缺少有效的 mv_id")
+    batch_id = str(payload.get("batch_id") or "").strip()
+    if not batch_id:
+        return ActionResult(ok=False, message="缺少待核对的 batch_id")
+    record, message = service.confirm_batch_refresh(mv_id, batch_id)
+    if record is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=f"已确认刷新版本 {record['refresh_version']}", entry=record)
+
+
+@router.get("/refresh-versions", response_model=PageResult[dict])
+def list_refresh_versions(
+    mv_id: int | None = Query(default=None, description="按物化视图过滤刷新版本"),
+) -> PageResult[dict]:
+    """读取视图刷新版本确认记录，关联记录与分发批次来源同步呈现。"""
+    items = service.list_refresh_versions(mv_id)
+    return PageResult(items=items, total=len(items), page=1, size=len(items) or 1)
+
+
+@router.get("/batch-sources", response_model=PageResult[dict])
+def list_batch_sources(
+    mv_id: int | None = Query(default=None, description="按物化视图过滤来源记录"),
+) -> PageResult[dict]:
+    """物化查询侧保留的分发批次结果来源记录。"""
+    items = service.list_batch_sources(mv_id)
+    return PageResult(items=items, total=len(items), page=1, size=len(items) or 1)
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条物化视图明细；不存在时给出可读的错误说明。"""

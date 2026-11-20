@@ -305,6 +305,13 @@ class PipelineEngine:
             "mv_id": mv.get("id"),
             "refreshed_at": datetime.now().isoformat(),
             "record_count": 42,  # 模拟值
+            # 物化查询侧保留的来源记录：跨模块传递时与下沉分发各存一份
+            "source_record": {
+                "module": "materialized_view",
+                "lineage_id": lineage_id,
+                "mv_id": mv.get("id"),
+                "downstream_table": downstream,
+            },
         }
         self._ensure_artifact_table("materialized_refresh_log")
         store.rows("materialized_refresh_log").append(refreshed_data)
@@ -318,6 +325,14 @@ class PipelineEngine:
                 "target_system": sink.get("目标系统"),
                 "dispatched_at": datetime.now().isoformat(),
                 "status": "待推送",
+                # 下沉分发侧保留的来源记录：与物化查询侧分别留存，链路可双向回溯
+                "source_record": {
+                    "module": "sink_dispatch",
+                    "sink_rule_id": sink.get("id"),
+                    "lake_table": downstream,
+                    "from_mv_id": mv.get("id"),
+                    "from_lineage_id": lineage_id,
+                },
             }
             self._ensure_artifact_table("sink_dispatch_queue")
             store.rows("sink_dispatch_queue").append(dispatch_record)
@@ -586,6 +601,10 @@ class PipelineEngine:
             "compact_results": len(store.rows("compact_results")),
             "ttl_applied_log": len(store.rows("ttl_applied_log")),
             "realtime_metric_results": len(store.rows("realtime_metric_results")),
+            "sink_dispatch_batches": len(store.rows("sink_dispatch_batches")),
+            "sink_committed_keys": len(store.rows("sink_committed_keys")),
+            "materialized_refresh_versions": len(store.rows("materialized_refresh_versions")),
+            "materialized_batch_sources": len(store.rows("materialized_batch_sources")),
         }
 
         return {
